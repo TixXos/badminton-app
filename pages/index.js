@@ -1,10 +1,17 @@
+let auth;
+import { signInWithEmailAndPassword } from "firebase/auth";
 import { useState, useEffect } from "react";
 import { db } from "../lib/firebase";
 import { doc, setDoc, onSnapshot } from "firebase/firestore";
-import { auth } from "../lib/firebase";
-import { signInWithEmailAndPassword } from "firebase/auth";
 
 export default function App() {
+const [authInstance, setAuthInstance] = useState(null);
+
+useEffect(() => {
+  import("../lib/firebase").then((mod) => {
+    setAuthInstance(mod.auth);
+  });
+}, []);
 
   // STATES
   const [user, setUser] = useState(null);
@@ -25,14 +32,16 @@ export default function App() {
   const [showPodium, setShowPodium] = useState(false);
   
   //Loggin
-  const handleLogin = async () => {
-  try {
-    const res = await signInWithEmailAndPassword(auth, email, password);
-    setUser(res.user);
-  } catch (e) {
-    alert("Login failed");
-  }
-};
+	const handleLogin = async () => {
+	  if (!auth) return;
+
+	  try {
+		const res = await signInWithEmailAndPassword(authInstance, email, password);
+		setUser(res.user);
+	  } catch (e) {
+		alert("Login failed");
+	  }
+	};
 
   // FIREBASE
   useEffect(() => {
