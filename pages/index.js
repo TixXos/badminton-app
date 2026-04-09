@@ -1,22 +1,15 @@
-let auth;
-import { signInWithEmailAndPassword } from "firebase/auth";
 import { useState, useEffect } from "react";
 import { db } from "../lib/firebase";
 import { doc, setDoc, onSnapshot } from "firebase/firestore";
 
 export default function App() {
-const [authInstance, setAuthInstance] = useState(null);
 
-useEffect(() => {
-  import("../lib/firebase").then((mod) => {
-    setAuthInstance(mod.auth);
-  });
-}, []);
-
-  // STATES
+  // 🔐 LOGIN
   const [user, setUser] = useState(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+
+  // STATES
   const [players, setPlayers] = useState([]);
   const [name, setName] = useState("");
   const [gender, setGender] = useState("M");
@@ -28,22 +21,22 @@ useEffect(() => {
   const [history, setHistory] = useState([]);
 
   const [displayMode, setDisplayMode] = useState(false);
-  const [selectedCourts, setSelectedCourts] = useState([]);
   const [showPodium, setShowPodium] = useState(false);
-  
-  //Loggin
-	const handleLogin = async () => {
-	  if (!auth) return;
 
-	  try {
-		const res = await signInWithEmailAndPassword(authInstance, email, password);
-		setUser(res.user);
-	  } catch (e) {
-		alert("Login failed");
-	  }
-	};
+  // 🔐 LOGIN (SSR SAFE)
+  const handleLogin = async () => {
+    try {
+      const { auth } = await import("../lib/firebase");
+      const { signInWithEmailAndPassword } = await import("firebase/auth");
 
-  // FIREBASE
+      const res = await signInWithEmailAndPassword(auth, email, password);
+      setUser(res.user);
+    } catch (e) {
+      alert("Login failed");
+    }
+  };
+
+  // FIREBASE SYNC
   useEffect(() => {
     const unsub = onSnapshot(doc(db, "tournament", "main"), (docSnap) => {
       const data = docSnap.data();
@@ -74,62 +67,27 @@ useEffect(() => {
       history
     });
   };
-	const recomputeStats = (allMatches) => {
-  const winMap = {};
-  const pointMap = {};
 
-  players.forEach((p) => {
-    winMap[p.name] = 0;
-    pointMap[p.name] = 0;
-  });
-
-  allMatches.forEach((m) => {
-    const p1 = m.p1.split(" / ");
-    const p2 = m.p2.split(" / ");
-
-    p1.forEach((p) => {
-      pointMap[p] += m.score1 || 0;
-    });
-
-    p2.forEach((p) => {
-      pointMap[p] += m.score2 || 0;
-    });
-
-    if (m.validated) {
-      if (m.score1 > m.score2) {
-        p1.forEach((p) => winMap[p]++);
-      } else {
-        p2.forEach((p) => winMap[p]++);
-      }
-    }
-  });
-
-  return players.map((p) => ({
-    ...p,
-    wins: winMap[p.name],
-    points: pointMap[p.name],
-  }));
-};
   // REMOVE PLAYER
   const removePlayer = async (name) => {
-  const reason = prompt("Pourquoi ce joueur sort ? (Blessé, Apéro, Fatigue...)");
+    const reason = prompt("Pourquoi ce joueur sort ?");
 
-  const updatedPlayers = players.map(p =>
-    p.name === name
-      ? { ...p, active: false, reason: reason || "Sorti" }
-      : p
-  );
+    const updatedPlayers = players.map(p =>
+      p.name === name
+        ? { ...p, active: false, reason: reason || "Sorti" }
+        : p
+    );
 
-  setPlayers(updatedPlayers);
+    setPlayers(updatedPlayers);
 
-  await setDoc(doc(db, "tournament", "main"), {
-    players: updatedPlayers,
-    matches,
-    history
-  });
-};
+    await setDoc(doc(db, "tournament", "main"), {
+      players: updatedPlayers,
+      matches,
+      history
+    });
+  };
 
-  // RESET TOTAL
+  // RESET
   const resetTournament = async () => {
     if (!confirm("Reset COMPLET ?")) return;
 
@@ -144,88 +102,61 @@ useEffect(() => {
     });
   };
 
-  // SHUFFLE
   const shuffle = (arr) => [...arr].sort(() => Math.random() - 0.5);
 
   // GENERATE MATCHES
   const generateMatches = () => {
-  let newMatches = [];
+    let newMatches = [];
 
-  const active = shuffle(players.filter(p => p.active));
+    const active = shuffle(players.filter(p => p.active));
 
-  // 🧍 SIMPLE
-  if (mode === "simple") {
-    for (let i = 0; i < active.length - 1 && newMatches.length < courts; i += 2) {
-      newMatches.push({
-        p1: active[i].name,
-        p2: active[i + 1].name,
-        score1: "",
-        score2: "",
-        validated: false
-      });
+    // SIMPLE
+    if (mode === "simple") {
+      for (let i = 0; i < active.length - 1 && newMatches.length < courts; i += 2) {
+        newMatches.push({
+          p1: active[i].name,
+          p2: active[i + 1].name,
+          score1: "",
+          score2: "",
+          validated: false
+        });
+      }
     }
-  }
 
-  // 👫 DOUBLE
-  // 👫 DOUBLE
-	if (mode === "double") {
+    // DOUBLE
+    if (mode === "double") {
+      const pool = teamMode === "random" ? shuffle(active) : active;
 
-	  const pool = teamMode === "random"
-		? shuffle(players.filter(p => p.active))
-		: players.filter(p => p.active); // pas de shuffle
+      for (let i = 0; i < pool.length - 3 && newMatches.length < courts; i += 4) {
+        newMatches.push({
+          p1: `${pool[i].name} / ${pool[i + 1].name}`,
+          p2: `${pool[i + 2].name} / ${pool[i + 3].name}`,
+          score1: "",
+          score2: "",
+          validated: false
+        });
+      }
+    }
 
-	  for (let i = 0; i < pool.length - 3 && newMatches.length < courts; i += 4) {
+    // MIXTE
+    if (mode === "mixte") {
+      const men = shuffle(active.filter(p => p.gender === "M"));
+      const women = shuffle(active.filter(p => p.gender === "F"));
 
-		let team1, team2;
+      for (let i = 0; i < Math.min(men.length, women.length) - 1 && newMatches.length < courts; i += 2) {
+        newMatches.push({
+          p1: `${men[i].name} / ${women[i].name}`,
+          p2: `${men[i + 1].name} / ${women[i + 1].name}`,
+          score1: "",
+          score2: "",
+          validated: false
+        });
+      }
+    }
 
-		if (teamMode === "random") {
-		  const group = shuffle(pool.slice(i, i + 4));
-
-		  team1 = `${group[0].name} / ${group[1].name}`;
-		  team2 = `${group[2].name} / ${group[3].name}`;
-		} else {
-		  // FIXE → on respecte l’ordre
-		  team1 = `${pool[i].name} / ${pool[i + 1].name}`;
-		  team2 = `${pool[i + 2].name} / ${pool[i + 3].name}`;
-		}
-
-		newMatches.push({
-		  p1: team1,
-		  p2: team2,
-		  score1: "",
-		  score2: "",
-		  validated: false
-		});
-	  }
-	}
-
-  // 🧑‍🤝‍🧑 MIXTE
-  // 🧑‍🤝‍🧑 MIXTE
-	if (mode === "mixte") {
-
-	  const men = teamMode === "random"
-		? shuffle(players.filter(p => p.active && p.gender === "M"))
-		: players.filter(p => p.active && p.gender === "M");
-
-	  const women = teamMode === "random"
-		? shuffle(players.filter(p => p.active && p.gender === "F"))
-		: players.filter(p => p.active && p.gender === "F");
-
-	  for (let i = 0; i < Math.min(men.length, women.length) - 1 && newMatches.length < courts; i += 2) {
-
-		newMatches.push({
-		  p1: `${men[i].name} / ${women[i].name}`,
-		  p2: `${men[i + 1].name} / ${women[i + 1].name}`,
-		  score1: "",
-		  score2: "",
-		  validated: false
-		});
-	  }
-	}
-
-  setMatches(newMatches);
-  return newMatches;
-};
+    setMatches(newMatches);
+    return newMatches;
+  };
 
   const handleGenerate = async () => {
     const newMatches = generateMatches();
@@ -237,62 +168,36 @@ useEffect(() => {
     });
   };
 
-  // UPDATE SCORE
   const updateScore = (i, field, val) => {
     const updated = [...matches];
     updated[i][field] = val === "" ? "" : Number(val);
     setMatches(updated);
   };
 
-  // VALIDATE
   const validateMatch = async (i) => {
-	const updated = [...matches];
-	const m = updated[i];
-	const s1 = Number(m.score1);
-	const s2 = Number(m.score2);
+    const updated = [...matches];
+    updated[i].validated = true;
 
-	if (!((m.score1 >= 21 || m.score2 >= 21) && Math.abs(m.score1 - m.score2) >= 2)) {
-		alert("Score invalide");
-		return;
-	}
+    await setDoc(doc(db, "tournament", "main"), {
+      players,
+      matches: updated,
+      history
+    });
+  };
 
-	m.validated = true;
-
-  const updatedPlayers = recomputeStats([...history, ...updated]);
-
-  setPlayers(updatedPlayers);
-
-  await setDoc(doc(db, "tournament", "main"), {
-    players: updatedPlayers,
-    matches: updated,
-    history
-  });
-};
-
-  //NEXT
   const nextRound = async () => {
+    const newHistory = [...history, ...matches];
+    const newMatches = generateMatches();
 
-  //créer history
-  const newHistory = [...history, ...matches];
+    setHistory(newHistory);
+    setMatches(newMatches);
 
-  //recalcul stats
-  const updatedPlayers = recomputeStats(newHistory);
-
-  //générer nouveaux matchs
-  const newMatches = generateMatches();
-
-  //update state
-  setHistory(newHistory);
-  setMatches(newMatches);
-  setPlayers(updatedPlayers);
-
-  //save Firebase
-  await setDoc(doc(db, "tournament", "main"), {
-    players: updatedPlayers,
-    matches: newMatches,
-    history: newHistory
-  });
-};
+    await setDoc(doc(db, "tournament", "main"), {
+      players,
+      matches: newMatches,
+      history: newHistory
+    });
+  };
 
   const allMatchesValidated =
     matches.length > 0 && matches.every(m => m.validated);
@@ -301,39 +206,22 @@ useEffect(() => {
     (a, b) => b.wins - a.wins || b.points - a.points
   );
 
-  // PODIUM
   const podium = sortedPlayers.slice(0, 3);
-  
-  //Blocage
+
+  // LOGIN BLOCK
   if (!user) {
-  return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="bg-white p-6 rounded-xl flex flex-col gap-2">
-
-        <input
-          placeholder="Email"
-          onChange={(e) => setEmail(e.target.value)}
-          className="border p-2"
-        />
-
-        <input
-          type="password"
-          placeholder="Mot de passe"
-          onChange={(e) => setPassword(e.target.value)}
-          className="border p-2"
-        />
-
-        <button
-          onClick={handleLogin}
-          className="bg-blue-600 text-white p-2 rounded"
-        >
-          Se connecter
-        </button>
-
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="bg-white p-6 rounded-xl flex flex-col gap-2">
+          <input placeholder="Email" onChange={(e) => setEmail(e.target.value)} className="border p-2"/>
+          <input type="password" placeholder="Mot de passe" onChange={(e) => setPassword(e.target.value)} className="border p-2"/>
+          <button onClick={handleLogin} className="bg-blue-600 text-white p-2 rounded">
+            Se connecter
+          </button>
+        </div>
       </div>
-    </div>
-  );
-}
+    );
+  }
 
   return (
     <div className="min-h-screen bg-cover bg-center p-6"
