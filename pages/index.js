@@ -1,10 +1,15 @@
 import { useState, useEffect } from "react";
 import { db } from "../lib/firebase";
 import { doc, setDoc, onSnapshot } from "firebase/firestore";
+import { auth } from "../lib/firebase";
+import { signInWithEmailAndPassword } from "firebase/auth";
 
 export default function App() {
 
   // STATES
+  const [user, setUser] = useState(null);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [players, setPlayers] = useState([]);
   const [name, setName] = useState("");
   const [gender, setGender] = useState("M");
@@ -18,6 +23,16 @@ export default function App() {
   const [displayMode, setDisplayMode] = useState(false);
   const [selectedCourts, setSelectedCourts] = useState([]);
   const [showPodium, setShowPodium] = useState(false);
+  
+  //Loggin
+  const handleLogin = async () => {
+  try {
+    const res = await signInWithEmailAndPassword(auth, email, password);
+    setUser(res.user);
+  } catch (e) {
+    alert("Login failed");
+  }
+};
 
   // FIREBASE
   useEffect(() => {
@@ -279,6 +294,37 @@ export default function App() {
 
   // PODIUM
   const podium = sortedPlayers.slice(0, 3);
+  
+  //Blocage
+  if (!user) {
+  return (
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="bg-white p-6 rounded-xl flex flex-col gap-2">
+
+        <input
+          placeholder="Email"
+          onChange={(e) => setEmail(e.target.value)}
+          className="border p-2"
+        />
+
+        <input
+          type="password"
+          placeholder="Mot de passe"
+          onChange={(e) => setPassword(e.target.value)}
+          className="border p-2"
+        />
+
+        <button
+          onClick={handleLogin}
+          className="bg-blue-600 text-white p-2 rounded"
+        >
+          Se connecter
+        </button>
+
+      </div>
+    </div>
+  );
+}
 
   return (
     <div className="min-h-screen bg-cover bg-center p-6"
